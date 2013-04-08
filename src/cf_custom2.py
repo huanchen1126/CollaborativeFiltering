@@ -1,3 +1,4 @@
+#Custom algorithm 2
 import os
 import math
 import sys
@@ -5,10 +6,9 @@ from heapq import nlargest
 from collections import defaultdict
 if len(sys.argv) != 4:
     print "arguments: K data_directory query_file_name output_file_path"
+    sys.exit()
 K = int(sys.argv[1])
-#DATA_PATH = "/Users/huanchen/Documents/cf_data/download_sample/training_set"
-#QUERY_PATH = "/Users/huanchen/Documents/cf_data/download_sample/queries.txt"
-#OUTPUT_PATH = "/Users/huanchen/Documents/cf_data/custom2_sim_full"+str(K)
+
 DATA_PATH = sys.argv[2]
 QUERY_PATH = sys.argv[3]
 OUTPUT_PATH = sys.argv[4]

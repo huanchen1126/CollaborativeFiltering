@@ -1,23 +1,16 @@
+#Custom algorithm 1
 import os
 import math
 import sys
 from heapq import nlargest
 from collections import defaultdict
-if len(sys.argv) != 5:
-    print "arguments: K user_or_movie data_directory query_file_name output_file_path"
+if len(sys.argv) != 4:
+    print "arguments: K data_directory query_file_name output_file_path"
+    sys.exit()
 K = int(sys.argv[1])
-user_or_movie = sys.argv[2]
-if user_or_movie == "user":
-    IS_USER = True
-else:
-    IS_USER = False
-
-#DATA_PATH = "/Users/huanchen/Documents/cf_data/download_sample/training_set"
-#QUERY_PATH = "/Users/huanchen/Documents/cf_data/download_sample/queries.txt"
-#OUTPUT_PATH = "/Users/huanchen/Documents/cf_data/no_norm_"+user_or_movie+"_sim"+str(K)
-DATA_PATH = sys.argv[3]
-QUERY_PATH = sys.argv[4]
-OUTPUT_PATH = sys.argv[5]
+DATA_PATH = sys.argv[2]
+QUERY_PATH = sys.argv[3]
+OUTPUT_PATH = sys.argv[4]
 # load data into memory
 dir_name = DATA_PATH
 dir_files = os.listdir(dir_name)
@@ -38,26 +31,38 @@ for filename in dir_files:
     f.close()
 # do vector standardization
 # cache the average and norm for later prediction
+user_rating_ave = defaultdict(float)
 user_rating_norm = defaultdict(float)
+movie_rating_ave = defaultdict(float)
 movie_rating_norm = defaultdict(float)
 # do centering and normalization
 for user in user_to_movie_rating:
     movies = user_to_movie_rating[user]
+    cur_ave = float(sum(movies.values()))/len(movies)
+    user_rating_ave[user] = cur_ave
     norm = 0.0
     for m in movies:
-        movies[m] -= 3
+        movies[m] -= cur_ave
         norm += movies[m]**2
     norm = math.sqrt(norm)
     user_rating_norm[user] = norm
-
+    for m in movies:
+        if norm != 0:
+            movies[m] /= norm
 for movie in movie_to_user_rating:
     users = movie_to_user_rating[movie]
+    cur_ave = float(sum(users.values()))/len(users)
+    movie_rating_ave[movie] = cur_ave
     norm = 0.0
     for u in users:
-        users[u] -= 3
+        users[u] -= cur_ave
         norm += users[u]**2
     norm = math.sqrt(norm)
     movie_rating_norm[movie] = norm
+    for u in users:
+        if norm != 0:
+            users[u] /= norm
+
 # helper functions for later use
 # compute the distance
 def compute_dist(cur, neighbors):
@@ -67,38 +72,37 @@ def compute_dist(cur, neighbors):
             result += cur[m]* neighbors[m]
     return result
 
-# get the k nearest neighbors
+#get the k nearest neighbors
 def get_k_nearest(cur, k, is_user):
     if is_user:
         work_set = user_to_movie_rating
         inverted_list = movie_to_user_rating
-        norm_set = user_rating_norm
     else:
         work_set = movie_to_user_rating
         inverted_list = user_to_movie_rating
-        norm_set = movie_rating_norm
     cur_set = work_set[cur]
-    candidate = set()
+    s = set()
     for key1 in cur_set:
         for key2 in inverted_list[key1]:
-            candidate.add(key2)
+            s.add(key2)
         # compute the distance
     def get_dist():
-        for key in candidate:
+        for key in s:
             dist = compute_dist(cur_set, work_set[key])
-            if norm_set[cur] != 0 and norm_set[key] != 0:
-                dist /= norm_set[cur]*norm_set[key]
             if key != cur:
                 yield key, dist
     k_nearest = nlargest(k, get_dist(), key=lambda x:x[1])
+    #print k_nearest
     return k_nearest
 
 # get the weighted mean
 def get_rating(k_nearest, is_user):
     if is_user:
         work_set = user_to_movie_rating
+        work_ave = user_rating_ave
     else:
         work_set = movie_to_user_rating
+        work_ave = movie_rating_ave
     result = defaultdict(float)
     total_weight = 0;
     # get the set of related movies or users
@@ -116,7 +120,7 @@ def get_rating(k_nearest, is_user):
             if id in related_set:
                 result[id] += neighbor[1]*value[id]
             else:
-                result[id] += neighbor[1]*3
+                result[id] += neighbor[1]*work_ave[key]
         total_weight += neighbor[1]
         # get the weighted average
     for id in result:
@@ -127,7 +131,8 @@ def get_rating(k_nearest, is_user):
 # do prediction
 k = K
 f = open(OUTPUT_PATH, "w")
-cache = defaultdict(dict)
+cache_movie = defaultdict(dict)
+cache_user = defaultdict(dict)
 # read queries
 query_file_name = QUERY_PATH
 query_f = open(query_file_name, "r")
@@ -140,29 +145,26 @@ for line in lines:
         movie_id = line[:ind]
         f.write(movie_id+":\n")
         # if this is using movie-movie similarity
-        if not IS_USER:
-            if movie_id in cache:
-                k_nearest = cache[movie_id]
-            else:
-                k_nearest = get_k_nearest(movie_id, k, IS_USER)
-                cache[movie_id] = k_nearest
-            ratings = get_rating(k_nearest, IS_USER)
+        if movie_id in cache_movie:
+            k_nearest = cache_movie[movie_id]
+        else:
+            k_nearest = get_k_nearest(movie_id, k, False)
+            cache_movie[movie_id] = k_nearest
+        ratings_movie = get_rating(k_nearest, False)
     else:           # if this is a user id
         user_id = line[:-1]
-        if not IS_USER:
-            rating = ratings[user_id]
-            rating = rating + 3
-            f.write(str(rating) + "\n")
-            # print "movie_id: " + movie_id + " user_id: " + user_id + " rating: " + str(rating) + "\n"
+        # using movie-movie, get one prediction
+        rating_movie = ratings_movie[user_id]
+        rating_movie = rating_movie * movie_rating_norm[movie_id] + movie_rating_ave[movie_id]
+        # using user-user, get one prediction
+        if user_id in cache_user:
+            k_nearest = cache_user[user_id]
         else:
-            if user_id in cache:
-                k_nearest = cache[user_id]
-            else:
-                k_nearest = get_k_nearest(user_id, k, IS_USER)
-                cache[user_id] = k_nearest
-            ratings = get_rating(k_nearest, IS_USER)
-            rating = ratings[movie_id]
-            rating = rating + 3
-            f.write(str(rating)+"\n")
-            # print "movie_id: " + movie_id + " user_id: " + user_id + " rating: " + str(rating)+"\n"
+            k_nearest = get_k_nearest(user_id, k, True)
+            cache_user[user_id] = k_nearest
+        ratings_user = get_rating(k_nearest, True)
+        rating_user = ratings_user[movie_id]
+        rating_user = rating_user * user_rating_norm[user_id] + user_rating_ave[user_id]
+        # use the average as the final prediction
+        f.write(str((rating_movie+rating_user)/2)+"\n")
 f.close()
