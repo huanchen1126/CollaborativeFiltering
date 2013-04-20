@@ -4,7 +4,7 @@ import math
 import sys
 from heapq import nlargest
 from collections import defaultdict
-if len(sys.argv) != 4:
+if len(sys.argv) != 5:
     print "arguments: K data_directory query_file_name output_file_path"
     sys.exit()
 K = int(sys.argv[1])
